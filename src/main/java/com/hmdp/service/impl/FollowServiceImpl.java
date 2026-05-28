@@ -18,6 +18,7 @@ import javax.annotation.Resource;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * <p>
@@ -35,12 +36,21 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
     @Resource
     private IUserService userService;
     @Override
+    @Transactional
     public Result follow(Long followUserId, Boolean isFollow) {
         //获取登录用户
         Long userId = UserHolder.getUser().getId();
+        if (userId.equals(followUserId)) {
+            return Result.fail("不能关注自己");
+        }
         String key = "follows:" + userId;
         //1.判断关注还是取关
         if (isFollow){
+            Integer count = query().eq("user_id", userId).eq("follow_user_id", followUserId).count();
+            if (count > 0) {
+                stringRedisTemplate.opsForSet().add(key, followUserId.toString());
+                return Result.ok();
+            }
             //2.关注
             Follow follow = new Follow();
             follow.setUserId(userId);

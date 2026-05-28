@@ -6,6 +6,7 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
@@ -51,7 +52,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
     static {
         SECKILL_SCRIPT = new DefaultRedisScript<>();
-        SECKILL_SCRIPT.setLocation(new ClassPathResource("seckill.lua"));
+        SECKILL_SCRIPT.setLocation(new ClassPathResource("mapper/seckill.lua"));
         SECKILL_SCRIPT.setResultType(Long.class);
     }
 
@@ -62,6 +63,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         Long result = stringRedisTemplate.execute(SECKILL_SCRIPT,
                 Collections.emptyList(),
                 voucherId.toString(), userId.toString());
+        if (result == null) {
+            return Result.fail("抢购失败");
+        }
 
         // 2.判断结果是否为0
         int r = result.intValue();
@@ -82,16 +86,35 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             jsonStr = objectMapper.writeValueAsString(voucherOrder);
         } catch (Exception e) {
             log.error("订单序列化失败, orderId: {}", orderId, e);
+            compensateSeckill(voucherId, userId);
             return Result.fail("订单创建失败");
         }
-        kafkaTemplate.send("seckill.order.topic", userId.toString(), jsonStr)
-                .addCallback(
-                        sendResult -> log.debug("订单消息发送成功, orderId: {}", orderId),
-                        ex -> log.error("订单消息发送失败, orderId: {}", orderId, ex)
-                );
+        try {
+            kafkaTemplate.send("seckill.order.topic", userId.toString(), jsonStr)
+                    .addCallback(
+                            sendResult -> log.debug("订单消息发送成功, orderId: {}", orderId),
+                            ex -> {
+                                log.error("订单消息发送失败, orderId: {}", orderId, ex);
+                                compensateSeckill(voucherId, userId);
+                            }
+                    );
+        } catch (Exception e) {
+            log.error("订单消息发送失败, orderId: {}", orderId, e);
+            compensateSeckill(voucherId, userId);
+            return Result.fail("订单创建失败");
+        }
 
         // 5.返回订单id
         return Result.ok(orderId);
+    }
+
+    private void compensateSeckill(Long voucherId, Long userId) {
+        try {
+            stringRedisTemplate.opsForValue().increment(RedisConstants.SECKILL_STOCK_KEY + voucherId);
+            stringRedisTemplate.opsForSet().remove("seckill:order:" + voucherId, userId.toString());
+        } catch (Exception e) {
+            log.error("秒杀Redis补偿失败, voucherId: {}, userId: {}", voucherId, userId, e);
+        }
     }
 
     /**

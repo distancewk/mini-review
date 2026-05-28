@@ -5,16 +5,13 @@ import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import com.hmdp.entity.Shop;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -23,6 +20,8 @@ import java.util.function.Function;
 public class CacheClient {
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+    @Resource
+    private ExecutorService cacheRebuildExecutor;
     public void set(String key, Object value, Long time, TimeUnit unit) {
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), time, unit);
     }
@@ -59,7 +58,6 @@ public class CacheClient {
         //6.存在，写入redis
         return r;
     }
-    private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
     public <R,ID> R queryWithLogicalExpire(String keyPrefix,ID id,Class<R> type,Function<ID,R> dbFallback, Long time, TimeUnit unit) {
         String key = keyPrefix + id;
         //1.从redis中查询缓存
@@ -93,7 +91,7 @@ public class CacheClient {
 
                 return r;
             }
-            CACHE_REBUILD_EXECUTOR.submit(() -> {
+            cacheRebuildExecutor.submit(() -> {
                 //重建缓存
                 try {
                     R r1 = dbFallback.apply(id);

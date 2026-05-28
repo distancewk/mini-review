@@ -18,7 +18,6 @@ import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -81,8 +80,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                         .setFieldValueEditor((fieldName,fieldValue) -> fieldValue.toString()));
         stringRedisTemplate.opsForHash().putAll(LOGIN_USER_KEY+token,stringObjectMap);
         stringRedisTemplate.expire(LOGIN_USER_KEY+token,RedisConstants.LOGIN_USER_TTL,TimeUnit.MINUTES);
-        log.info("登录成功{}", UserHolder.getUser());
+        log.info("登录成功，userId: {}", userDTO.getId());
         return Result.ok(token);
+    }
+
+    @Override
+    public Result logout(String token) {
+        if (token != null && !token.trim().isEmpty()) {
+            stringRedisTemplate.delete(LOGIN_USER_KEY + token);
+        }
+        UserHolder.removeUser();
+        return Result.ok();
     }
 
     @Override

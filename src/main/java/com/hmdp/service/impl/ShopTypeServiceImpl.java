@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -32,7 +33,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
     public Result typeList() {
         List<String> shoptype = stringredisTemplate.opsForList().range(RedisConstants.CACHE_SHOP_TYPE_KEY,0,-1);
         List<ShopType> shopTypeList = new ArrayList<>();
-        if (!shoptype.isEmpty()){
+        if (shoptype != null && !shoptype.isEmpty()){
             for (String s : shoptype) {
                 ShopType shopType = JSONUtil.toBean(s, ShopType.class);
                 shopTypeList.add(shopType);
@@ -43,9 +44,10 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
         if (shopTypeList.isEmpty()){
             return Result.fail("分类不存在");
         }
-        for (ShopType shopType : shopTypeList) {
-            stringredisTemplate.opsForList().leftPush(RedisConstants.CACHE_SHOP_TYPE_KEY,JSONUtil.toJsonStr(shopType));
-        }
+        List<String> cacheValues = shopTypeList.stream()
+                .map(JSONUtil::toJsonStr)
+                .collect(Collectors.toList());
+        stringredisTemplate.opsForList().rightPushAll(RedisConstants.CACHE_SHOP_TYPE_KEY, cacheValues);
         return Result.ok(shopTypeList);
 
     }

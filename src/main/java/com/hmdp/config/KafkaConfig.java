@@ -11,6 +11,7 @@ import org.springframework.util.backoff.FixedBackOff;
  * Kafka 配置：重试机制与死信队列
  */
 @Configuration
+@SuppressWarnings("deprecation")
 public class KafkaConfig {
 
     @Bean

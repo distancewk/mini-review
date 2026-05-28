@@ -10,7 +10,12 @@ local stockKey = "seckill:stock:" .. voucherId
 --  订单key
 local orderKey = "seckill:order:" .. voucherId
 
-if (tonumber(redis.call("get", stockKey)) <= 0) then
+local stock = redis.call("get", stockKey)
+if (stock == false or stock == nil) then
+    return 1
+end
+
+if (tonumber(stock) <= 0) then
     --  库存不足
     return 1
 end

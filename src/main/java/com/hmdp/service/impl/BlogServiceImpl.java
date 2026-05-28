@@ -1,7 +1,6 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
@@ -18,9 +17,6 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
@@ -29,8 +25,8 @@ import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * <p>
@@ -49,9 +45,6 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     private StringRedisTemplate stringRedisTemplate;
     @Resource
     private IFollowService followService;
-    @Qualifier("redisTemplate")
-    @Autowired
-    private RedisTemplate redisTemplate;
 
     @Override
     public Result queryBlogById(Long id) {
@@ -94,6 +87,19 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     public Result likeBlog(Long id) {
         //1.获取登录用户
         Long userId = UserHolder.getUser().getId();
+        String lockKey = "lock:blog:like:" + id + ":" + userId;
+        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", 3, TimeUnit.SECONDS);
+        if (!Boolean.TRUE.equals(locked)) {
+            return Result.fail("操作太频繁");
+        }
+        try {
+            return doLikeBlog(id, userId);
+        } finally {
+            stringRedisTemplate.delete(lockKey);
+        }
+    }
+
+    private Result doLikeBlog(Long id, Long userId) {
         //2.判断当前用户有无点赞
         String key = RedisConstants.BLOG_LIKED_KEY + id;
         Double score = stringRedisTemplate.opsForZSet().score(key, userId.toString());
@@ -111,7 +117,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
             //4.如果已点赞，取消点赞
 
             //4.1数据库点赞数-1
-            boolean isSuccess = update().setSql("liked = liked - 1").eq("id", id).update();
+            boolean isSuccess = update().setSql("liked = liked - 1").eq("id", id).gt("liked", 0).update();
             //4.2redis取消集合数据
             if (isSuccess) {
                 stringRedisTemplate.opsForZSet().remove(key, userId.toString());
